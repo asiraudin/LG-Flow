@@ -1,4 +1,4 @@
-name: lgdm
+name: lgflow
 channels:
   - pytorch
   - nvidia
