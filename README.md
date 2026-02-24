@@ -3,13 +3,13 @@
 Official Pytorch implementation of LG-Flow and the associated autoencoder, LG-VAE.
 
 > We introduce the LG-VAE, a principled graph autoencoder, with strong recontruction accuracy. 🎯
-
+<p align="center">
 <img src="assets/ae_vf.png" alt="AE: Visualization" width="70%"/>
-
+<p>
 > We train a flow-matching model in the latent space of our autoencoder. Thanks to the fixed size of the node embeddings and the efficiency of the DiT, our approach yields substantial inference speed-up 🚀
-
+<p align="center">
 <img src="assets/ldm_vf.png" alt="LDM: Visualization" width="60%"/>
-
+<p>
 ## 🧱 Environment Installation
 
 We use **Conda** to manage the environment. All dependencies are specified in the provided configuration file [`environment.yml`](./environment.yml).
