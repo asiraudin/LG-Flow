@@ -3,7 +3,7 @@ defaults:
   - dataset: protein
   - _self_
 
-root: /work/log1/antoine.siraudin/lgdm/protein
+root: null
 checkpoint: null
 
 # Training

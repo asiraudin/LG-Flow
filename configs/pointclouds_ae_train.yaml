@@ -3,7 +3,7 @@ defaults:
   - dataset: pointclouds
   - _self_
 
-root: /work/log1/antoine.siraudin/lgdm/pointclouds
+root: null
 checkpoint: null
 
 # Training

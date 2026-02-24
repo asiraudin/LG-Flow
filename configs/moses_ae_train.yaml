@@ -3,7 +3,7 @@ defaults:
   - dataset: moses
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/moses'
+root: null
 checkpoint: null
 
 # Training

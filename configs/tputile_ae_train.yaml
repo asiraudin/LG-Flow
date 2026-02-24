@@ -3,7 +3,7 @@ defaults:
   - dataset: tpu_tile
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/tpu_tile'
+root: null
 checkpoint: null
 
 # Training

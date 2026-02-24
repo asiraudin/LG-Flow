@@ -3,7 +3,7 @@ defaults:
   - dataset: tree
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/tree'
+root: null
 checkpoint: null
 
 # Training

@@ -7,7 +7,7 @@ encoder:
   ds_dim: 16
   modulation: 0.
 
-root: '/work/log1/antoine.siraudin/lgdm/price'
+root: null
 checkpoint: null
 
 # Training
