@@ -2,12 +2,13 @@
 
 Pytorch implementation for LG-VAE and the associated latent graph diffusion model.
 
-> We introduce the LG-VAE, a principled graph autoencoder, with provable recontruction accuracy. 🎯
-![AE: Visualization](assets/ae_vf.png)
+> We introduce the LG-VAE, a principled graph autoencoder, with strong recontruction accuracy. 🎯
+
+<img src="assets/ae_vf.png" alt="AE: Visualization" width="70%"/>
 
 > We train a flow-matching model in the latent space of our autoencoder. Thanks to the fixed size of the node embeddings and the efficiency of the DiT, our approach yields substantial inference speed-up 🚀
 
-![LDM: Visualization](assets/ldm_vf.png)
+<img src="assets/ldm_vf.png" alt="LDM: Visualization" width="60%"/>
 
 ## 🧱 Environment Installation
 
@@ -18,8 +19,8 @@ We use **Conda** to manage the environment. All dependencies are specified in th
 Run the following command from the root directory of the repository:
 
 ```bash
-conda env create -f lgdm.yml
-conda activate lgdm
+conda env create -f environment.yml
+conda activate lgflow
 ```
 ### 🔧 Step 2: Compile orca 
 
