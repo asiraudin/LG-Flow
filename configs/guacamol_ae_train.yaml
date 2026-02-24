@@ -3,7 +3,7 @@ defaults:
   - dataset: guacamol
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/guacamol'
+root: null
 checkpoint: null
 
 # Training
