@@ -1,6 +1,6 @@
 # Principled Latent Diffusion for Graphs via Laplacian Autoencoders
 
-Pytorch implementation for LG-VAE and the associated latent graph diffusion model.
+Official Pytorch implementation of LG-Flow and the LG-VAE.
 
 > We introduce the LG-VAE, a principled graph autoencoder, with strong recontruction accuracy. 🎯
 
