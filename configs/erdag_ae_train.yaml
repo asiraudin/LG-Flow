@@ -1,0 +1,34 @@
+defaults:
+  - encoder: mlpe_mlp_gine_erdag
+  - dataset: er_dag
+  - _self_
+
+encoder:
+  ds_dim: 16
+  modulation: 0.
+
+root: '/work/log1/antoine.siraudin/lgdm/erdag'
+checkpoint: null
+
+# Training
+seed: 0
+lr_scheduler: 'cosine'
+lr: 2e-4
+min_lr: 1.5e-4
+lr_decay_iters: 2e4
+weight_decay: 1e-4
+gradient_norm: 1.0
+batch_size: 256
+num_steps: 2e4
+num_warmup_steps: 100
+num_workers: 0
+log_after: 500
+val_after: 2000
+kl_weight: 1e-6
+equi_weight: 0.
+dropout: 0.
+
+# Misc
+wandb_project: null
+wandb_entity: null
+wandb_name: null

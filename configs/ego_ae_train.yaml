@@ -1,0 +1,34 @@
+defaults:
+  - encoder: lpe_mlp_gine_planar
+  - dataset: ego
+  - _self_
+
+encoder:
+  num_vecs: 64
+  pe_dim: 24
+
+root: null
+checkpoint: null
+
+# Training
+seed: 0
+lr_scheduler: 'cosine'
+lr: 2e-4
+min_lr: 5e-5
+lr_decay_iters: 4e4
+weight_decay: 1e-4
+gradient_norm: 1.0
+batch_size: 64
+num_steps: 4e4
+num_warmup_steps: 100
+num_workers: 1
+log_after: 500
+val_after: 1000
+kl_weight: 1e-6
+equi_weight: 0.
+dropout: 0.
+
+# Misc
+wandb_project: null
+wandb_entity: null
+wandb_name: null

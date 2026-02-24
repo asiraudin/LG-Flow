@@ -1,0 +1,19 @@
+name: 'lpe'
+num_vecs: 8
+normalized_laplacian: yes
+normalize_eigenvecs: no
+phi_model: 'mlp'
+rho_model: 'gin'
+pe_dim: 8
+modulation: 0.05
+ds_dim: 24
+
+phi:
+  num_layers: 2
+  hidden_dim: 64
+  bias: True
+  dropout: 0.
+
+rho:
+  num_layers: 2
+  embed_dim: 64

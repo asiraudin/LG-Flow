@@ -1,0 +1,5 @@
+embed_dim: 384
+num_heads: 6
+num_layers: 12
+use_pe: False
+

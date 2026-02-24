@@ -1,0 +1,19 @@
+name: 'lpe'
+num_vecs: 16
+normalized_laplacian: no
+normalize_eigenvecs: True
+phi_model: 'mlp'
+rho_model: 'gin'
+pe_dim: 16
+modulation: 0.005
+ds_dim: 24
+
+phi:
+  num_layers: 2
+  hidden_dim: 256
+  bias: True
+  dropout: 0.
+
+rho:
+  num_layers: 16
+  embed_dim: 256

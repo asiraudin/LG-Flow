@@ -1,0 +1,10 @@
+# Dataset
+name: 'ego'
+num_nodes: 399
+num_node_features: 0
+num_edge_features: 1
+num_node_types: 0
+num_edge_types: 1
+directed: False
+molecular: False
+large_graph: True

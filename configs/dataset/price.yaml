@@ -1,0 +1,10 @@
+# Dataset
+name: 'price'
+num_nodes: 64
+num_node_features: 0
+num_edge_features: 1
+num_node_types: 0
+num_edge_types: 1
+directed: True
+molecular: False
+large_graph: False

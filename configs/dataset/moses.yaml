@@ -1,0 +1,10 @@
+# Dataset
+name: 'moses'
+num_nodes: 27
+num_node_features: 11
+num_edge_features: 7
+num_node_types: 7
+num_edge_types: 4
+directed: False
+molecular: True
+large_graph: False

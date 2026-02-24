@@ -1,0 +1,10 @@
+# Dataset
+name: 'tpu_tile'
+num_nodes: 394
+num_node_features: 1
+num_edge_features: 1
+num_node_types: 47
+num_edge_types: 1
+directed: True
+molecular: False
+large_graph: False

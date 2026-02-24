@@ -1,0 +1,43 @@
+defaults:
+  - encoder : lpe_mlp_gine_planar
+  - denoiser : dit_mediumsmall
+  - dataset : tree
+  - _self_
+
+root: /work/log1/antoine.siraudin/lgdm/tree
+ae_checkpoint_file: null
+checkpoint: null
+
+# Training
+seed: 0
+lr_scheduler: 'constant'
+lr: 2e-4
+min_lr: 1e-4
+lr_decay_iters: 2e5
+weight_decay: 1e-12
+gradient_norm: null
+batch_size: 256
+num_steps: 5e5
+num_warmup_steps: 4000
+num_workers: 0
+log_after: 1000
+val_after: 12000
+num_sample_batch: 2
+dropout: 0.
+noise: 0.
+sc_prob: 0.5
+sample: True
+
+
+# FM
+param: 'x_0'
+num_sampling_steps: 100
+time_density: 'log_norm'
+density_params: [0.,1.]
+sampling_time_density: 'log_norm'
+sampling_density_params: [0.,1.]
+
+# Misc
+wandb_project: null
+wandb_entity: null
+wandb_name: null

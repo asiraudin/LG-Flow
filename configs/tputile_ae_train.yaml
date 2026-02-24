@@ -1,0 +1,29 @@
+defaults:
+  - encoder: mlpe_mlp_gine_tputile
+  - dataset: tpu_tile
+  - _self_
+
+root: '/work/log1/antoine.siraudin/lgdm/tpu_tile'
+checkpoint: null
+
+# Training
+seed: 0
+lr_scheduler: 'cosine'
+lr: 2e-4
+min_lr: 1e-5
+lr_decay_iters: 4e4
+weight_decay: 1e-4
+gradient_norm: 1.0
+batch_size: 256
+num_steps: 4e4
+num_warmup_steps: 100
+num_workers: 0
+log_after: 500
+val_after: 1000
+kl_weight: 1e-6
+dropout: 0.
+
+# Misc
+wandb_project: null
+wandb_entity: null
+wandb_name: null
