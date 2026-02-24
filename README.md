@@ -48,3 +48,14 @@ where ```<config_name>``` is your config file, located in the configs folder und
    - On molecular graphs : ```python eval_fm.py --config-name=<config_name> ae_checkpoint_file="path_to_ae_ckpt_location" checkpoint="path_to_fm_ckpt_location"```
    - On DAGs : ```python eval_fm_dafg=.py --config-name=<config_name> ae_checkpoint_file="path_to_ae_ckpt_location" checkpoint="path_to_fm_ckpt_location"```
 where ```<config_name>``` is your config file, located in the configs folder under the name ```<dataset>_fm_train.yaml```
+
+## 📚 Citation 
+
+```bibtex
+@article{siraudin2026principled,
+  title     = {Principled Latent Diffusion for Graphs via Laplacian Autoencoders},
+  author    = {Siraudin, Antoine and Morris, Christopher},
+  url       = {https://arxiv.org/abs/2601.13780},
+  year      = {2026},
+}
+```
