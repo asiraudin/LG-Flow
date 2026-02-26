@@ -10,6 +10,7 @@ Official Pytorch implementation of LG-Flow and the associated autoencoder, LG-VA
 <p align="center">
 <img src="assets/ldm_vf.png" alt="LDM: Visualization" width="60%"/>
 <p>
+
 ## 🧱 Environment Installation
 
 We use **Conda** to manage the environment. All dependencies are specified in the provided configuration file [`environment.yml`](./environment.yml).
