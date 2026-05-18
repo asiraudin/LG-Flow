@@ -17,7 +17,6 @@ models/modules/__pycache__
 multirun
 outputs
 wandb
-assets
 datasets/__pycache__
 */__pycache__
 work
