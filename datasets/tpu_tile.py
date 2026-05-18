@@ -3,7 +3,14 @@ from collections import Counter
 import torch
 import torch_geometric.utils
 from torch_geometric.data import InMemoryDataset, download_url
-from .utils import node_counts, save_pickle, load_pickle
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class TPUGraphDataset(InMemoryDataset):
@@ -52,6 +59,7 @@ class TPUGraphDataset(InMemoryDataset):
         """
         splits = ['train', 'val', 'test']
         counts = {split: 0 for split in splits}
+        preprocess_times = init_preprocess_time_totals()
 
         for split in splits:
             raw_dataset = torch.load(osp.join(self.raw_dir, f'{split}.pt'))
@@ -77,6 +85,7 @@ class TPUGraphDataset(InMemoryDataset):
                     continue
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
+                    consume_preprocess_times(data, preprocess_times)
                 data_list.append(data)
 
             node_count = node_counts(data_list)
@@ -98,3 +107,4 @@ class TPUGraphDataset(InMemoryDataset):
                        osp.join(self.processed_dir, f'{split}.pt'))
 
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)

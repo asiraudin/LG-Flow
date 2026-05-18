@@ -26,6 +26,7 @@ num_warmup_steps: 4000
 num_workers: 4
 log_after: 1000
 val_after: 12000
+num_samples: 151
 num_sample_batch: 1
 dropout: 0.
 noise: 0.

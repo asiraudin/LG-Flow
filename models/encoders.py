@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from typing import Any
 from .modules import GIN
 from loguru import logger
 
@@ -20,6 +21,90 @@ class NodeFeatureEmbedder(nn.Module):
         else:
             self.mode = "identity"
             self.embed = nn.Identity()
+
+    def _load_from_state_dict(
+        self,
+        state_dict: dict[str, torch.Tensor],
+        prefix: str,
+        local_metadata: dict[str, Any],
+        strict: bool,
+        missing_keys: list[str],
+        unexpected_keys: list[str],
+        error_msgs: list[str],
+    ) -> None:
+        legacy_weight_key = f"{prefix}weight"
+        legacy_bias_key = f"{prefix}bias"
+        remapped_keys: list[str] = []
+
+        if legacy_weight_key in state_dict:
+            legacy_weight = state_dict[legacy_weight_key]
+            legacy_bias = state_dict.get(legacy_bias_key)
+
+            if self.mode == "types":
+                current_weight_key = f"{prefix}embed.weight"
+                if (
+                    legacy_weight.shape == self.embed.weight.shape
+                    and legacy_bias is None
+                    and current_weight_key not in state_dict
+                ):
+                    state_dict[current_weight_key] = state_dict.pop(legacy_weight_key)
+                    remapped_keys.append(current_weight_key)
+                elif (
+                    legacy_weight.dim() == 2
+                    and legacy_weight.size(1) == 1
+                    and current_weight_key not in state_dict
+                ):
+                    type_ids = torch.arange(
+                        self.num_node_types,
+                        device=legacy_weight.device,
+                        dtype=legacy_weight.dtype,
+                    )  # (num_node_types,)
+                    type_embed = type_ids.unsqueeze(1) * legacy_weight[:, 0].unsqueeze(0)  # (num_node_types, embed_dim)
+                    if legacy_bias is not None:
+                        type_embed = type_embed + legacy_bias.unsqueeze(0)  # (num_node_types, embed_dim)
+                        state_dict.pop(legacy_bias_key)
+                    state_dict[current_weight_key] = type_embed
+                    state_dict.pop(legacy_weight_key)
+                    remapped_keys.append(current_weight_key)
+
+            elif (
+                self.mode == "mixed"
+                and legacy_weight.dim() == 2
+                and legacy_weight.size(1) == self.num_node_features
+            ):
+                type_weight_key = f"{prefix}type_embed.weight"
+                feat_weight_key = f"{prefix}feat_proj.weight"
+                feat_bias_key = f"{prefix}feat_proj.bias"
+                if type_weight_key not in state_dict and feat_weight_key not in state_dict:
+                    type_ids = torch.arange(
+                        self.num_node_types,
+                        device=legacy_weight.device,
+                        dtype=legacy_weight.dtype,
+                    )  # (num_node_types,)
+                    type_embed = type_ids.unsqueeze(1) * legacy_weight[:, 0].unsqueeze(0)  # (num_node_types, embed_dim)
+                    state_dict[type_weight_key] = type_embed
+                    state_dict[feat_weight_key] = legacy_weight[:, 1:]  # (embed_dim, num_node_features - 1)
+                    remapped_keys.extend([type_weight_key, feat_weight_key])
+                    if legacy_bias is not None and feat_bias_key not in state_dict:
+                        state_dict[feat_bias_key] = legacy_bias
+                        remapped_keys.append(feat_bias_key)
+                        state_dict.pop(legacy_bias_key)
+                    state_dict.pop(legacy_weight_key)
+
+        if remapped_keys:
+            logger.info(
+                f"Remapped legacy node feature embedder checkpoint keys under `{prefix}` to {remapped_keys}"
+            )
+
+        super()._load_from_state_dict(
+            state_dict=state_dict,
+            prefix=prefix,
+            local_metadata=local_metadata,
+            strict=strict,
+            missing_keys=missing_keys,
+            unexpected_keys=unexpected_keys,
+            error_msgs=error_msgs,
+        )
 
     def forward(self, x):
         if self.mode == "identity":
@@ -101,7 +186,15 @@ class EncodermLPE(nn.Module):
         self.edge_features_embed = nn.Linear(num_edge_features, phi_cfg.hidden_dim) if num_edge_features > 0 else nn.Identity()
 
         self.phi = PaddedComplexEigenEmbedding(phi_cfg.hidden_dim, phi_cfg.bias)
-        self.rho = GIN(True, rho_cfg.num_layers, phi_cfg.hidden_dim, rho_cfg.embed_dim, global_cfg.pe_dim, dropout)
+        self.rho = GIN(
+            True,
+            rho_cfg.num_layers,
+            phi_cfg.hidden_dim,
+            rho_cfg.embed_dim,
+            global_cfg.pe_dim,
+            dropout,
+            rho_cfg.norm,
+        )
 
         self.modulation = global_cfg.modulation
 
@@ -132,7 +225,7 @@ class EncodermLPE(nn.Module):
         
         x_embed = x_embed + eigen_embed
         e_embed = self.edge_features_embed(data.edge_attr.float())  # (num_edges, d)
-        pe = self.rho(x_embed, data.edge_index, e_embed)
+        pe = self.rho(x_embed, data.edge_index, e_embed, getattr(data, "batch", None))
         return pe
 
 
@@ -161,7 +254,15 @@ class EncoderLPE(nn.Module):
         self.edge_features_embed = nn.Linear(num_edge_features, phi_cfg.hidden_dim) if num_edge_features > 0 else nn.Identity()
 
         self.phi = PaddedEigenEmbedding(phi_cfg.hidden_dim, phi_cfg.bias)
-        self.rho = GIN(False, rho_cfg.num_layers, phi_cfg.hidden_dim, rho_cfg.embed_dim, global_cfg.pe_dim, dropout)
+        self.rho = GIN(
+            False,
+            rho_cfg.num_layers,
+            phi_cfg.hidden_dim,
+            rho_cfg.embed_dim,
+            global_cfg.pe_dim,
+            dropout,
+            rho_cfg.norm,
+        )
 
         self.modulation = global_cfg.modulation
 
@@ -188,42 +289,5 @@ class EncoderLPE(nn.Module):
         
         x_embed = x_embed + eigen_embed
         e_embed = self.edge_features_embed(data.edge_attr.float())  # (num_edges, d)
-        pe = self.rho(x_embed, data.edge_index, e_embed)            # (n_sum, pe_dim)
-        return pe
-
-
-class EncoderGNN(nn.Module):
-    def __init__(
-            self,
-            num_node_types,
-            num_node_features,
-            num_edge_features,
-            global_cfg,
-            phi_cfg,
-            rho_cfg,
-            dropout,
-            orbit
-    ):
-        super().__init__()
-        self.num_vecs = global_cfg.num_vecs
-        self.phi_name = global_cfg.phi_model
-        self.rho_name = global_cfg.rho_model
-
-        self.node_features_embed = NodeFeatureEmbedder(
-            num_node_types=num_node_types,
-            num_node_features=num_node_features,
-            embed_dim=phi_cfg.hidden_dim,
-        )
-        self.edge_features_embed = nn.Linear(num_edge_features, phi_cfg.hidden_dim)
-
-        self.rho = GIN(False, rho_cfg.num_layers, phi_cfg.hidden_dim, rho_cfg.embed_dim, global_cfg.pe_dim, dropout)
-
-        self.orbit = orbit
-        self.modulation = global_cfg.modulation
-
-    def forward(self, data):
-        x_embed = self.node_features_embed(data.x)  # (n_sum, d)
-
-        e_embed = self.edge_features_embed(data.edge_attr.float())  # (num_edges, d)
-        pe = self.rho(x_embed, data.edge_index, e_embed)            # (n_sum, pe_dim)
+        pe = self.rho(x_embed, data.edge_index, e_embed, getattr(data, "batch", None))  # (n_sum, pe_dim)
         return pe

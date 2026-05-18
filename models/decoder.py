@@ -1,10 +1,8 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
 from torch.nn import RMSNorm
 from torch_geometric.utils import to_dense_batch
 import math
-from loguru import logger
 
 
 class DeepSetClassifier(nn.Module):
@@ -25,10 +23,10 @@ class DeepSetClassifier(nn.Module):
 
         z_tilde = z_tilde.unsqueeze(-1)                                             # (bs, e, n, n, 1)
         mask = mask.unsqueeze(1).unsqueeze(-1)                                      # (bs, 1, n, n, 1)
-        phi_out = self.phi(z_tilde.unsqueeze(-1)).squeeze()
+        phi_out = self.phi(z_tilde)                                                 # (bs, e, n, n, d)
         c = (mask * phi_out).sum(3) / mask.sum(3).clamp(min=1.0).float()           # (bs, e, n, d)
         h = F.gelu(self.wself(z_tilde) + self.wctx(c).unsqueeze(3))                 # (bs, e, n, n, d)
-        return self.out(h).squeeze()
+        return self.out(h).squeeze(-1)
 
 
 class DecoderDirected(nn.Module):
@@ -69,8 +67,8 @@ class DecoderDirected(nn.Module):
         k2 = k2.reshape(b, n, self.num_edge_features, -1).transpose(1, 2)    # (b, n, e, d) -> (b, e, n, d)
         q2 = q2.reshape(b, n, self.num_edge_features, -1).transpose(1, 2)
 
-        z_re = torch.einsum("bend,bemd->benm", k1, q1).squeeze() * scale_factor         # (bs, e, n, n)
-        z_im = torch.einsum("bend,bemd->benm", k2, q2).squeeze() * scale_factor         # (bs, e, n, n)
+        z_re = torch.einsum("bend,bemd->benm", k1, q1) * scale_factor               # (bs, e, n, n)
+        z_im = torch.einsum("bend,bemd->benm", k2, q2) * scale_factor               # (bs, e, n, n)
 
         c = torch.cos(2 * math.pi * q).reshape(-1, 1, 1, 1).to(z_im.device)
         s = torch.sin(2 * math.pi * q).reshape(-1, 1, 1, 1).to(z_im.device)
@@ -96,7 +94,16 @@ class DecoderDirected(nn.Module):
 
 
 class DecoderUnDirected(nn.Module):
-    def __init__(self, pe_dim, max_num_nodes, ds_dim, num_node_features, num_edge_features, dropout):
+    def __init__(
+        self,
+        pe_dim: int,
+        max_num_nodes: int,
+        ds_dim: int,
+        num_node_features: int,
+        num_edge_features: int,
+        dropout: float,
+        use_rms_norm: bool = False,
+    ) -> None:
         super().__init__()
         self.pe_dim = pe_dim
         self.num_edge_features = num_edge_features + 1
@@ -111,8 +118,15 @@ class DecoderUnDirected(nn.Module):
         else:
             self.node_out_proj = nn.Identity()
         self.max_num_nodes = max_num_nodes
+        self.node_rms_norm = RMSNorm(pe_dim) if use_rms_norm else nn.Identity()
 
-    def forward(self, x, batch, q=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        batch: torch.Tensor,
+        q: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        x = self.node_rms_norm(x)                                                          # (n_sum, d)
         x_hat = self.node_out_proj(x)                                                          # (n_sum, x)
 
         k, q = self.attn_proj(x).split(self.num_edge_features * self.pe_dim, dim=-1)         # (n_sum, e*d)
@@ -126,48 +140,19 @@ class DecoderUnDirected(nn.Module):
 
         k = k.reshape(b, n, self.num_edge_features, -1).transpose(1, 2)    # (b, n, e, d) -> (b, e, n, d)
         q = q.reshape(b, n, self.num_edge_features, -1).transpose(1, 2)
-        z_tilde = torch.einsum("bend,bemd->benm", q, k).squeeze() * scale_factor         # (bs, e, n, n)
+        z_tilde = torch.einsum("bend,bemd->benm", q, k) * scale_factor              # (bs, e, n, n)
         z_tilde = (z_tilde + z_tilde.transpose(-2, -1)) / 2                                    # (bs, e, n, n)
 
         b, n = z_tilde.shape[0], z_tilde.shape[-1]
-        edge_mask = self.build_edge_mask(mask, 0)  # (bs, n, n)
+        edge_mask = self.build_edge_mask(mask)  # (bs, n, n)
         e_hat = self.edge_out_proj(z_tilde, edge_mask)
         e_hat = self.edge_proj_dropout(e_hat)                           # (bs, e, n, n)
-
-        if e_hat.dim() < 4:
-            e_hat = e_hat.unsqueeze(0)
+        upper = torch.triu(e_hat, diagonal=1)
+        e_hat = upper + upper.transpose(-1, -2)
 
         return e_hat.transpose(-1, 1), x_hat, edge_mask, mask
 
-    def build_edge_mask(self, mask, pad_size):
-        b, n = mask.shape[0], mask.shape[1]
-        edge_mask = mask.unsqueeze(-1) & mask.unsqueeze(-2)
-        diagonal_mask = torch.eye(n, dtype=torch.bool, device=edge_mask.device)
-        diagonal_mask = diagonal_mask.unsqueeze(0).expand(b, -1, -1)
-
-        edge_mask = edge_mask & ~diagonal_mask
-        return edge_mask
-
-
-class DecoderGVAE(nn.Module):
-    def __init__(self, max_num_nodes):
-        super().__init__()
-        self.max_num_nodes = max_num_nodes
-
-    def forward(self, x, batch, q=None):
-        x_dense, mask = to_dense_batch(x, batch)                # (bs, n, d)
-        p_tilde = x_dense @ x_dense.transpose(2, 1)                         # (bs, n, n)
-        p_tilde = (p_tilde + p_tilde.transpose(-2, -1)) / 2     # (bs, n, n)
-
-        b, n = p_tilde.shape[0], p_tilde.shape[-1]
-        pad_size = self.max_num_nodes - n
-        p_tilde = F.pad(p_tilde, (0, pad_size, 0, pad_size))
-        edge_mask = self.build_edge_mask(mask, pad_size)        # (bs, n, n)
-
-        return p_tilde, None, edge_mask, mask
-
-    def build_edge_mask(self, mask, pad_size):
-        mask = F.pad(mask, (0, pad_size))
+    def build_edge_mask(self, mask):
         b, n = mask.shape[0], mask.shape[1]
         edge_mask = mask.unsqueeze(-1) & mask.unsqueeze(-2)
         diagonal_mask = torch.eye(n, dtype=torch.bool, device=edge_mask.device)

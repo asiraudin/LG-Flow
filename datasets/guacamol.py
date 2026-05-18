@@ -8,7 +8,14 @@ from rdkit import Chem, RDLogger
 from tqdm import tqdm
 from torch_geometric.data import InMemoryDataset, download_url
 from torch_geometric.utils import to_dense_adj
-from .utils import load_pickle, save_pickle, node_counts
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 from .mol_utils import mol_to_torch_geometric, mol2smiles
 from evaluation.moses.molecules import build_molecule
 from loguru import logger
@@ -98,6 +105,7 @@ class GuacamolDataset(InMemoryDataset):
 
         splits = ['train', 'val', 'test']
         counts = {split: 0 for split in splits}
+        preprocess_times = init_preprocess_time_totals()
         for split in splits:
             smile_list = open(osp.join(self.raw_dir, f'{split}.smiles')).readlines()
 
@@ -128,6 +136,7 @@ class GuacamolDataset(InMemoryDataset):
                                         continue
                                     if self.pre_transform is not None:
                                         data = self.pre_transform(data)
+                                        consume_preprocess_times(data, preprocess_times)
                                     data_list.append(data)
                                     smiles_kept.append(smile)
                             except Chem.rdchem.AtomValenceException:
@@ -139,6 +148,7 @@ class GuacamolDataset(InMemoryDataset):
                             continue
                         if self.pre_transform is not None:
                             data = self.pre_transform(data)
+                            consume_preprocess_times(data, preprocess_times)
                         data_list.append(data)
                         smiles_kept.append(smile)
                 pbar.update(1)
@@ -152,3 +162,4 @@ class GuacamolDataset(InMemoryDataset):
                        osp.join(self.processed_dir, f'{split}.pt'))
             save_pickle(set(smiles_kept), osp.join(self.processed_dir, f'{split}_smiles.pickle'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)

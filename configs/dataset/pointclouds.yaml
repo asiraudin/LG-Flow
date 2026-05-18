@@ -7,4 +7,5 @@ num_node_types: 0
 num_edge_types: 1
 directed: False
 molecular: False
-large_graph: True
+large_graph: False
+decoder_use_rms_norm: False

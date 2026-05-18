@@ -17,3 +17,4 @@ phi:
 rho:
   num_layers: 2
   embed_dim: 64
+  norm: 'batch_norm'

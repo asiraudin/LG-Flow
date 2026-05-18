@@ -1,0 +1,28 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+
+misc.xml
+modules.xml
+profiles_settings.xml
+Project_Default.xml
+/.idea
+
+models/modules/__pycache__
+multirun
+outputs
+wandb
+assets
+datasets/__pycache__
+*/__pycache__
+work
+models/__pycache__
+fm/__pycache__
+moses/__pycache__
+.DS_Store
+__pycache__/

@@ -6,7 +6,14 @@ import torch
 from torch_geometric.utils import dense_to_sparse, from_networkx
 from torch_geometric.data import InMemoryDataset, download_url, Data
 
-from .utils import node_counts, save_pickle, load_pickle
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class EgoDataset(InMemoryDataset):
@@ -39,6 +46,7 @@ class EgoDataset(InMemoryDataset):
         os.rename(file_path, osp.join(self.raw_dir, 'data.pkl'))
 
     def process(self):
+        preprocess_times = init_preprocess_time_totals()
         networks = pkl.load(open(osp.join(self.raw_dir, self.raw_file_names[0]), 'rb'))
         data_list = []
         for network in networks:
@@ -55,6 +63,7 @@ class EgoDataset(InMemoryDataset):
                 continue
             if self.pre_transform is not None:
                 data = self.pre_transform(data)
+                consume_preprocess_times(data, preprocess_times)
 
             data_list.append(data)
 
@@ -79,8 +88,8 @@ class EgoDataset(InMemoryDataset):
 
             torch.save(self.collate(data_list), osp.join(self.processed_dir, f'{split}.pt'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)
 
 
 if __name__ == '__main__':
     dataset = EgoDataset('./work/ego/data', 'train')
-

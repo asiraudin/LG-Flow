@@ -184,8 +184,10 @@ class DiT(nn.Module):
         """
         if t.dim() == 0:
             t = torch.full((x.shape[0], ), t.item(), device=x.device)
+        elif t.dim() > 1:
+            t = t.reshape(t.shape[0])
 
-        t = self.time_embedder(t.squeeze())                       # (bs, d)
+        t = self.time_embedder(t)                                # (bs, d)
 
         if x_sc is None:
             x_sc = torch.zeros_like(x)

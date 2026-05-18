@@ -3,7 +3,14 @@ import numpy as np
 import torch
 import torch_geometric.utils
 from torch_geometric.data import InMemoryDataset
-from .utils import node_counts, save_pickle, load_pickle
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class PriceDataset(InMemoryDataset):
@@ -41,6 +48,7 @@ class PriceDataset(InMemoryDataset):
         """
         Generate synthetic data and convert to PyTorch Geometric format.
         """
+        preprocess_times = init_preprocess_time_totals()
         data_list = []
 
         for _ in range(self.num_graphs):
@@ -61,6 +69,7 @@ class PriceDataset(InMemoryDataset):
             )
             if self.pre_transform is not None:
                 data = self.pre_transform(data)
+                consume_preprocess_times(data, preprocess_times)
 
             data_list.append(data)
 
@@ -74,6 +83,7 @@ class PriceDataset(InMemoryDataset):
 
             torch.save(self.collate(data_list), osp.join(self.processed_dir, f'{split}.pt'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)
 
     @staticmethod
     def generate_structure(

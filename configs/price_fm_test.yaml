@@ -4,7 +4,7 @@ defaults:
   - dataset : price
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/price'
+root: null
 ae_checkpoint_file: null
 checkpoint: null
 

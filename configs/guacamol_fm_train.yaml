@@ -22,10 +22,14 @@ num_warmup_steps: 4000
 num_workers: 8
 log_after: 1000
 val_after: 12000
+num_samples: 2048
 num_sample_batch: 2
 dropout: 0.1
 noise: 0.
 sc_prob: 0.5
+selection_metric: 'valid'
+selection_mode: 'max'
+save_every_eval: False
 
 
 # FM

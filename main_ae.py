@@ -4,7 +4,11 @@ import torch
 import torch.nn.functional as F
 from loguru import logger
 import wandb
+from typing import Any
 
+from evaluation.autoencoder import evaluate_autoencoder
+from fm import compute_n_nodes_distr
+from fm.fm_helpers import build_autoencoder
 from utils import (
     setup_everything,
     save_checkpoint,
@@ -12,103 +16,75 @@ from utils import (
     setup_training,
     instantiate_dataset
 )
-from models import AutoencoderKL, EncoderLPE, DecoderUnDirected, EncodermLPE, DecoderDirected
-from fm import compute_n_nodes_distr
 from torch_geometric.utils import to_dense_adj, to_dense_batch
-from torch_geometric.transforms import Compose
-
-from torchmetrics.classification import (
-    MulticlassAccuracy,
-    MulticlassF1Score,
-    MulticlassPrecision,
-    MulticlassRecall
-)
 
 from torch.distributed import destroy_process_group
 
 
-def _disable_sync(m):
-    if m is not None:
-        # TorchMetrics flags
-        if hasattr(m, "sync_on_compute"):   m.sync_on_compute = False
-        if hasattr(m, "dist_sync_on_step"): m.dist_sync_on_step = False
+def _flatten_metric_dict(prefix: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for key, value in metrics.items():
+        full_key = f"{prefix}/{key}"
+        if isinstance(value, dict):
+            flattened.update(_flatten_metric_dict(full_key, value))
+            continue
+
+        if torch.is_tensor(value):
+            if value.ndim == 0:
+                flattened[full_key] = float(value.detach().cpu())
+            elif value.ndim == 1:
+                for idx in range(value.shape[0]):
+                    flattened[f"{full_key}/label_{idx}"] = float(value[idx].detach().cpu())
+        elif value is not None:
+            flattened[full_key] = value
+    return flattened
 
 
-@torch.no_grad()
-def evaluate(model, loader, device, num_node_types, num_edge_types, max_num_nodes):
-    edge_metrics = {
-        'accuracy': MulticlassAccuracy(num_classes=num_edge_types + 1, ignore_index=-1).to(device),
-        'precision': MulticlassPrecision(num_classes=num_edge_types + 1, ignore_index=-1).to(device),
-        'recall': MulticlassRecall(num_classes=num_edge_types + 1, ignore_index=-1).to(device),
-        'f1': MulticlassF1Score(num_classes=num_edge_types + 1, ignore_index=-1).to(device),
-        'sample_accuracy': MulticlassAccuracy(num_classes=num_edge_types + 1, ignore_index=-1,
-                                              multidim_average='samplewise').to(device)
-    }
-    if num_node_types > 1:
-        node_metrics = {
-            'accuracy': MulticlassAccuracy(num_classes=num_node_types, ignore_index=-1).to(device),
-            'precision': MulticlassPrecision(num_classes=num_node_types, ignore_index=-1).to(device),
-            'recall': MulticlassRecall(num_classes=num_node_types, ignore_index=-1).to(device),
-            'f1': MulticlassF1Score(num_classes=num_node_types, ignore_index=-1).to(device),
-            'sample_accuracy': MulticlassAccuracy(num_classes=num_node_types, ignore_index=-1,
-                                                  multidim_average='samplewise').to(device)
-        }
+def _build_sample_accuracy_bar_plot(sample_accuracy_by_num_nodes: dict[str, torch.Tensor]) -> Any | None:
+    num_nodes = sample_accuracy_by_num_nodes["num_nodes"].tolist()
+    sample_accuracy = sample_accuracy_by_num_nodes["sample_accuracy"].tolist()
+    num_samples = sample_accuracy_by_num_nodes["num_samples"].tolist()
+    if len(num_nodes) == 0:
+        return None
+
+    if len(num_nodes) <= 20:
+        labels = [str(num_node) for num_node in num_nodes]
+        accuracies = sample_accuracy
+        counts = num_samples
     else:
-        node_metrics = {key: None for key in edge_metrics.keys()}
+        num_bins = min(10, len(num_nodes))
+        min_nodes = min(num_nodes)
+        max_nodes = max(num_nodes)
+        bin_edges = torch.linspace(float(min_nodes), float(max_nodes), steps=num_bins + 1)
+        labels = []
+        accuracies = []
+        counts = []
+        for bin_idx in range(num_bins):
+            left = int(bin_edges[bin_idx].item())
+            right = int(bin_edges[bin_idx + 1].item())
+            if bin_idx == num_bins - 1:
+                selected = [idx for idx, num_node in enumerate(num_nodes) if left <= num_node <= right]
+            else:
+                selected = [idx for idx, num_node in enumerate(num_nodes) if left <= num_node < right]
+            if len(selected) == 0:
+                continue
 
-    for m in edge_metrics.values(): _disable_sync(m)
-    for m in node_metrics.values(): _disable_sync(m)
-    with torch.inference_mode():
-        for k, batch in enumerate(loader):
-            batch = batch.to(device)
-            edge_attr_targets = batch.edge_attr[..., 0] + 1
-            node_attr_targets = batch.x[..., 0]
-            with torch.no_grad():
-                e_hat, x_hat, edge_mask, _, _ = model(batch, sample_posterior=False)
+            total_count = sum(num_samples[idx] for idx in selected)
+            weighted_accuracy = sum(sample_accuracy[idx] * num_samples[idx] for idx in selected) / total_count
+            labels.append(f"{left}-{right}")
+            accuracies.append(weighted_accuracy)
+            counts.append(total_count)
 
-            e_hat, x_hat = e_hat.softmax(dim=-1), x_hat.softmax(dim=-1)  # (bs, n, n, e), (N_sum, x)
-            e_hat, x_hat = e_hat.argmax(dim=-1), x_hat.argmax(dim=-1)  # (bs, n, n), (N_sum)
-
-            e = to_dense_adj(
-                edge_index=batch.edge_index,
-                batch=batch.batch,
-                edge_attr=edge_attr_targets
-            )
-            e = e.masked_fill(edge_mask == 0, -1)
-
-            x, _ = to_dense_batch(node_attr_targets, batch.batch, fill_value=-1, max_num_nodes=max_num_nodes)
-            x_hat, _ = to_dense_batch(x_hat, batch.batch, max_num_nodes=max_num_nodes)
-
-            for (name, edge_metric), (_, node_metric) in zip(edge_metrics.items(), node_metrics.items()):
-                edge_metric(e_hat, e)
-                if num_node_types > 1:
-                    node_metric(x_hat, x)
-    
-    edge_metrics = {key: value.compute() for key, value in edge_metrics.items()}
-    if num_node_types > 1:
-        node_metrics = {key: value.compute() for key, value in node_metrics.items()}
-    num_samples = edge_metrics['sample_accuracy'].shape[0]
-
-    edge_sample_accuracy = torch.isclose(
-        edge_metrics['sample_accuracy'],
-        torch.ones_like(edge_metrics['sample_accuracy']),
-        rtol=1e-6
+    table = wandb.Table(
+        data=[[label, accuracy, count] for label, accuracy, count in zip(labels, accuracies, counts)],
+        columns=["node_count_bin", "sample_accuracy", "num_samples"],
     )
-    edge_metrics['sample_accuracy'] = edge_sample_accuracy.sum() / num_samples
-
-    if num_node_types > 1:
-        node_sample_accuracy = torch.isclose(
-            node_metrics['sample_accuracy'],
-            torch.ones_like(node_metrics['sample_accuracy']),
-            rtol=1e-6
-        )
-        node_metrics['sample_accuracy'] = node_sample_accuracy.sum() / num_samples
-
-        sample_accuracy = (node_sample_accuracy & edge_sample_accuracy).sum() / num_samples
-    else:
-        sample_accuracy = edge_metrics['sample_accuracy']
-
-    return sample_accuracy, edge_metrics, node_metrics
+    return wandb.plot.bar(
+        table,
+        "node_count_bin",
+        "sample_accuracy",
+        title="Sample Accuracy by Node Count",
+    )
 
 
 @hydra.main(version_base=None, config_path="./configs", config_name="debug")
@@ -139,46 +115,7 @@ def main(cfg):
         master_process=master_process
     )
 
-    if cfg.dataset.directed:
-        encoder = EncodermLPE(
-            num_node_types=cfg.dataset.num_node_types,
-            num_node_features=cfg.dataset.num_node_features,
-            num_edge_features=cfg.dataset.num_edge_types,
-            global_cfg=cfg.encoder,
-            phi_cfg=cfg.encoder.phi,
-            rho_cfg=cfg.encoder.rho,
-            dropout=cfg.dropout
-            )
-
-        decoder = DecoderDirected(
-            pe_dim=cfg.encoder.pe_dim,
-            max_num_nodes=cfg.dataset.num_nodes,
-            ds_dim=cfg.encoder.ds_dim,
-            num_node_features=cfg.dataset.num_node_types,
-            num_edge_features=cfg.dataset.num_edge_types,
-            dropout=cfg.dropout
-        )
-    else:
-        encoder = EncoderLPE(
-            num_node_types=cfg.dataset.num_node_types,
-            num_node_features=cfg.dataset.num_node_features,
-            num_edge_features=cfg.dataset.num_edge_types if not cfg.dataset.molecular else cfg.dataset.num_edge_features,
-            global_cfg=cfg.encoder,
-            phi_cfg=cfg.encoder.phi,
-            rho_cfg=cfg.encoder.rho,
-            dropout=cfg.dropout
-        )
-
-        decoder = DecoderUnDirected(
-            pe_dim=cfg.encoder.pe_dim,
-            max_num_nodes=cfg.dataset.num_nodes,
-            ds_dim=cfg.encoder.ds_dim,
-            num_node_features=cfg.dataset.num_node_types,
-            num_edge_features=cfg.dataset.num_edge_types,
-            dropout=cfg.dropout
-        )
-
-    model = AutoencoderKL(encoder, decoder, cfg.dataset.directed).to(device_id)
+    model = build_autoencoder(cfg, device_id)
 
     model, _, optimizer, scheduler, step, checkpoint_file, best = setup_training(
         cfg=cfg,
@@ -270,13 +207,15 @@ def main(cfg):
                     logger.info("Evaluating model")
                     module = model.module if device_count > 1 else model
                     module.eval()
-                    sample_acc, val_edge_metrics, val_node_metrics = evaluate(
+                    sample_acc, val_edge_metrics, val_node_metrics, val_sample_accuracy_by_num_nodes = evaluate_autoencoder(
                         module,
                         val_loader,
                         device_id,
                         cfg.dataset.num_node_types,
                         cfg.dataset.num_edge_types,
-                        cfg.dataset.num_nodes
+                        cfg.dataset.num_nodes,
+                        pad_edges_to_max_num_nodes=False,
+                        disable_metric_sync=True,
                     )
                     logger.info(f"Evaluation done.")
                     # Checkpointing
@@ -297,15 +236,16 @@ def main(cfg):
                             )
                     # Wandb logging
                     if cfg.wandb_project is not None and master_process:
-                        wandb.log(
-                            dict(
-                                sample_acc=sample_acc,
-                                best_sample_acc=best_sample_acc,
-                                val_edge_metrics=val_edge_metrics,
-                                val_node_metrics=val_node_metrics,
-                            ),
-                            step=step,
+                        log_payload = dict(
+                            sample_acc=float(sample_acc.detach().cpu()),
+                            best_sample_acc=float(best_sample_acc.detach().cpu()) if torch.is_tensor(best_sample_acc) else best_sample_acc,
                         )
+                        log_payload.update(_flatten_metric_dict("val_edge_metrics", val_edge_metrics))
+                        log_payload.update(_flatten_metric_dict("val_node_metrics", val_node_metrics))
+                        sample_accuracy_bar = _build_sample_accuracy_bar_plot(val_sample_accuracy_by_num_nodes)
+                        if sample_accuracy_bar is not None:
+                            log_payload["val_sample_accuracy_by_num_nodes"] = sample_accuracy_bar
+                        wandb.log(log_payload, step=step)
                 if device_count > 1:
                     torch.distributed.barrier()
                 model.train()

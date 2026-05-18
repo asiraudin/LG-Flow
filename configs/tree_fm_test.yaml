@@ -4,7 +4,7 @@ defaults:
   - dataset : tree
   - _self_
 
-root: /work/log1/antoine.siraudin/lgdm/tree
+root: null
 ae_checkpoint_file: null
 checkpoint: null
 
@@ -22,6 +22,7 @@ num_warmup_steps: 4000
 num_workers: 0
 log_after: 1000
 val_after: 12000
+num_samples: 256
 num_sample_batch: 1
 dropout: 0.
 noise: 0.

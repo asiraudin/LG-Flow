@@ -8,3 +8,4 @@ num_edge_types: 1
 directed: True
 molecular: False
 large_graph: False
+decoder_use_rms_norm: False

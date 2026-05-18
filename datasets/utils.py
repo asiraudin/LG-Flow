@@ -1,4 +1,5 @@
 from typing import Sequence, Any
+import time
 import tqdm
 import torch
 import torch.nn.functional as F
@@ -13,6 +14,9 @@ import pickle
 from collections import Counter
 from loguru import logger
 
+LAPLACIAN_TIME_ATTR = "_laplacian_preprocess_time_s"
+ORBIT_TIME_ATTR = "_orbit_preprocess_time_s"
+
 
 def save_pickle(array, path):
     with open(path, 'wb') as f:
@@ -22,6 +26,36 @@ def save_pickle(array, path):
 def load_pickle(path):
     with open(path, 'rb') as f:
         return pickle.load(f)
+
+
+def init_preprocess_time_totals() -> dict[str, float]:
+    return {"laplacian_time_s": 0.0, "orbit_time_s": 0.0}
+
+
+def pop_preprocess_times(data: Data) -> dict[str, float]:
+    laplacian_time_s = float(getattr(data, LAPLACIAN_TIME_ATTR, 0.0))
+    orbit_time_s = float(getattr(data, ORBIT_TIME_ATTR, 0.0))
+    if hasattr(data, LAPLACIAN_TIME_ATTR):
+        delattr(data, LAPLACIAN_TIME_ATTR)
+    if hasattr(data, ORBIT_TIME_ATTR):
+        delattr(data, ORBIT_TIME_ATTR)
+    return {
+        "laplacian_time_s": laplacian_time_s,
+        "orbit_time_s": orbit_time_s,
+    }
+
+
+def consume_preprocess_times(data: Data, totals: dict[str, float]) -> None:
+    times = pop_preprocess_times(data)
+    totals["laplacian_time_s"] += times["laplacian_time_s"]
+    totals["orbit_time_s"] += times["orbit_time_s"]
+
+
+def log_preprocess_times(dataset_name: str, totals: dict[str, float]) -> None:
+    logger.info(
+        f"{dataset_name} preprocessing times | laplacian: {totals['laplacian_time_s']:.2f}s | "
+        f"orbits: {totals['orbit_time_s']:.2f}s"
+    )
 
 
 def node_counts(data_list):
@@ -60,25 +94,55 @@ def compute_laplacian_eigen(
     normalize=False,
     large_graph=False,
 ):
-    A = torch.zeros((num_nodes, num_nodes))
-    A[edge_index[0], edge_index[1]] = 1
-
-    if normalized:
-        D12 = torch.diag(A.sum(1).clip(1) ** -0.5)
-        I = torch.eye(A.size(0))
-        L = I - D12 @ A @ D12
-    else:
-        D = torch.diag(A.sum(1))
-        L = D - A
-    eigvals, eigvecs = torch.linalg.eigh(L)
+    edge_index, _ = coalesce(edge_index, None, num_nodes, num_nodes)
+    edge_weight = torch.ones(edge_index.size(1), dtype=torch.float64)  # (e,)
+    row, col = edge_index[0], edge_index[1]
+    degree = torch.zeros(num_nodes, dtype=torch.float64)  # (n,)
+    degree.scatter_add_(0, row, edge_weight)
 
     if large_graph:
-        idx1 = torch.argsort(eigvals)[: max_freq // 2]
-        idx2 = torch.argsort(eigvals, descending=True)[: max_freq // 2]
-        idx = torch.cat([idx1, idx2])
-    else:
-        idx = torch.argsort(eigvals)[:max_freq]
+        if normalized:
+            inv_sqrt_degree = degree.clamp_min(1).pow(-0.5)  # (n,)
+            laplacian_values = -edge_weight * inv_sqrt_degree[row] * inv_sqrt_degree[col]  # (e,)
+            diagonal_values = torch.ones(num_nodes, dtype=torch.float64)  # (n,)
+        else:
+            laplacian_values = -edge_weight  # (e,)
+            diagonal_values = degree  # (n,)
 
+        diagonal_index = torch.arange(num_nodes, dtype=torch.long).unsqueeze(0).repeat(2, 1)  # (2, n)
+        laplacian_index = torch.cat((edge_index, diagonal_index), dim=1)  # (2, e + n)
+        laplacian_values = torch.cat((laplacian_values, diagonal_values), dim=0)  # (e + n,)
+        L = torch.sparse_coo_tensor(
+            laplacian_index,
+            laplacian_values,
+            (num_nodes, num_nodes),
+        ).coalesce()
+
+        k = min(max_freq, num_nodes)  # ()
+        if num_nodes >= 3 * k:
+            eigvals, eigvecs = torch.lobpcg(
+                L,
+                k=k,
+                largest=False,
+                method="ortho",
+            )
+        else:
+            L_dense = L.to_dense()  # (n, n)
+            eigvals, eigvecs = torch.linalg.eigh(L_dense)
+    else:
+        A = torch.zeros((num_nodes, num_nodes), dtype=torch.float64)  # (n, n)
+        A[edge_index[0], edge_index[1]] = 1
+
+        if normalized:
+            D12 = torch.diag(A.sum(1).clip(1) ** -0.5)  # (n, n)
+            I = torch.eye(A.size(0), dtype=torch.float64)  # (n, n)
+            L = I - D12 @ A @ D12  # (n, n)
+        else:
+            D = torch.diag(A.sum(1))  # (n, n)
+            L = D - A  # (n, n)
+        eigvals, eigvecs = torch.linalg.eigh(L)
+
+    idx = torch.argsort(eigvals)[:max_freq]
     eigvals, eigvecs = eigvals[idx], eigvecs[:, idx]
     eigvals = torch.real(eigvals).clamp_min(0)
 
@@ -89,8 +153,8 @@ def compute_laplacian_eigen(
     if num_nodes < max_freq:
         eigvals = F.pad(eigvals, (0, max_freq - num_nodes), value=float("nan"))
         eigvecs = F.pad(eigvecs, (0, max_freq - num_nodes), value=float("nan"))
-    eigvals = eigvals.unsqueeze(0).repeat(num_nodes, 1)
-    return eigvals, eigvecs
+    eigvals = eigvals.unsqueeze(0).repeat(num_nodes, 1)  # (n, k)
+    return eigvals.float(), eigvecs.float()
 
 
 def compute_magnetic_laplacian_eigen(
@@ -100,7 +164,7 @@ def compute_magnetic_laplacian_eigen(
     q=0.25,                 # charge parameter (q=0 -> undirected case)
     normalized=False,       # normalized magnetic Laplacian (MagNet)
     normalize=False,        # L2-normalize eigenvectors (column-wise)
-    large_graph=False,      # pick low & high freq halves as in your code
+    large_graph=False,
 ):
     """
     Returns:
@@ -145,13 +209,7 @@ def compute_magnetic_laplacian_eigen(
     # Hermitian eigendecomposition: eigenvalues are real, vectors complex
     eigvals, eigvecs = torch.linalg.eigh(L)                  # shapes: (n,), (n,n)
 
-    # Select frequencies as in your original routine
-    if large_graph:
-        idx1 = torch.argsort(eigvals.real)[: max_freq // 2]
-        idx2 = torch.argsort(eigvals.real, descending=True)[: max_freq // 2]
-        idx = torch.cat([idx1, idx2])
-    else:
-        idx = torch.argsort(eigvals.real)[: max_freq]
+    idx = torch.argsort(eigvals.real)[: max_freq]
 
     eigvals = eigvals[idx].real.clamp_min(0)                 # (k,)
     eigvecs = eigvecs[:, idx]                                # (n, k) complex
@@ -173,20 +231,25 @@ class Transform:
         directed,
         normalized_laplacian,
         normalize_eigenvecs,
+        num_vecs,
         large_graph=False,
 
     ):
         self.directed = directed
         self.normalized = normalized_laplacian
         self.normalize = normalize_eigenvecs
+        self.num_vecs = num_vecs
         self.large_graph = large_graph
 
     def __call__(self, data):
+        start_time = time.perf_counter()
+        # Keep a fixed spectral width across graphs so variable-size datasets collate cleanly.
+        max_freq = self.num_vecs
         if self.directed:
             eigvals, eigvecs, q = compute_magnetic_laplacian_eigen(
                 data.edge_index,
                 data.num_nodes,
-                data.num_nodes,
+                max_freq,
                 0.1,
                 self.normalized,
                 self.normalize,
@@ -201,11 +264,12 @@ class Transform:
             data.eigvals, data.eigvecs = compute_laplacian_eigen(
                 data.edge_index,
                 data.num_nodes,
-                data.num_nodes,
+                max_freq,
                 self.normalized,
                 self.normalize,
                 self.large_graph,
             )
+        setattr(data, LAPLACIAN_TIME_ATTR, time.perf_counter() - start_time)
         return data
 
 
@@ -245,6 +309,7 @@ def compute_1wl_orbits(g):
 
 class OrbitTransform(BaseTransform):
     def __call__(self, data):
+        start_time = time.perf_counter()
         g = to_networkx(
             data,
             node_attrs=["x"],
@@ -257,4 +322,5 @@ class OrbitTransform(BaseTransform):
         for i, idxs in enumerate(non_trivial_orbits):
             orbits_attr[idxs] = i + 1
         data.orbits = orbits_attr
+        setattr(data, ORBIT_TIME_ATTR, time.perf_counter() - start_time)
         return data

@@ -8,3 +8,6 @@ num_edge_types: 1
 directed: True
 molecular: False
 large_graph: False
+graph_type: 'ba'
+force_reload: False
+decoder_use_rms_norm: False

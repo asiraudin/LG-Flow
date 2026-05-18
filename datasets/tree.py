@@ -6,7 +6,14 @@ from torch_geometric.data import InMemoryDataset
 import networkx as nx
 
 
-from .utils import node_counts, save_pickle, load_pickle
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class TreeDataset(InMemoryDataset):
@@ -31,6 +38,7 @@ class TreeDataset(InMemoryDataset):
         return ['train.pt', 'val.pt', 'test.pt']
 
     def process(self):
+        preprocess_times = init_preprocess_time_totals()
         data_list = []
         for i in range(self.n_graphs):
             G = nx.random_tree(self.n_nodes)
@@ -48,6 +56,7 @@ class TreeDataset(InMemoryDataset):
                 continue
             if self.pre_transform is not None:
                 data = self.pre_transform(data)
+                consume_preprocess_times(data, preprocess_times)
 
             data_list.append(data)
 
@@ -61,3 +70,4 @@ class TreeDataset(InMemoryDataset):
 
             torch.save(self.collate(data_list), osp.join(self.processed_dir, f'{split}.pt'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)

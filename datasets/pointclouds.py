@@ -5,7 +5,14 @@ import torch
 from torch_geometric.data import InMemoryDataset, download_url
 from torch_geometric.utils import from_networkx
 
-from .utils import load_pickle, save_pickle, node_counts
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class PointCloudsDataset(InMemoryDataset):
@@ -41,6 +48,7 @@ class PointCloudsDataset(InMemoryDataset):
     def process(self):
         splits = ['train', 'val', 'test']
         counts = {split: 0 for split in splits}
+        preprocess_times = init_preprocess_time_totals()
         raw_dataset = load_pickle(os.path.join(self.raw_dir, f"point_cloud.pkl"))
         for split in splits:
             raw_graphs = raw_dataset[split]
@@ -59,6 +67,7 @@ class PointCloudsDataset(InMemoryDataset):
                     continue
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
+                    consume_preprocess_times(data, preprocess_times)
 
                 data_list.append(data)
 
@@ -66,3 +75,4 @@ class PointCloudsDataset(InMemoryDataset):
             counts[split] = node_count
             torch.save(self.collate(data_list), osp.join(self.processed_dir, f'{split}.pt'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)

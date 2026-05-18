@@ -4,7 +4,7 @@ defaults:
   - dataset : protein
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/protein'
+root: null
 ae_checkpoint_file: null
 checkpoint: null
 
@@ -22,11 +22,15 @@ num_warmup_steps: 4000
 num_workers: 4
 log_after: 1000
 val_after: 12000
+num_samples: 96
 num_sample_batch: 4
 dropout: 0.
 noise: 0.
 sc_prob: 0.5
 sample: True
+selection_metric: 'ratio'
+selection_mode: 'min'
+save_every_eval: False
 
 # FM
 param: 'x_0'
