@@ -4,7 +4,7 @@ defaults:
   - dataset : price
   - _self_
 
-root: '/work/log1/antoine.siraudin/lgdm/price'
+root: null
 ae_checkpoint_file: null
 checkpoint: null
 
@@ -36,6 +36,9 @@ time_density: 'log_norm'
 density_params: [0.,1.]
 sampling_time_density: 'log_norm'
 sampling_density_params: [0.,1.]
+selection_metric: 'sampling/frac_unic_non_iso_valid'
+selection_mode: 'max'
+save_every_eval: True
 
 # Misc
 wandb_project: null

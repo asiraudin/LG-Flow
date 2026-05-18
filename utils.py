@@ -1,8 +1,12 @@
+import datetime
+import inspect
+import math
+import os
+import shutil
+from typing import Any
+
 import torch
 from loguru import logger
-import inspect
-import os, datetime
-import math
 
 import wandb
 import torch.distributed as dist
@@ -12,8 +16,8 @@ from torch_geometric.loader import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from datasets import (
-    PlanarDataset, TreeDataset, EgoDataset, ProteinDataset, PointCloudsDataset, MOSESDataset, GuacamolDataset, 
-    TPUGraphDataset, ERDAGDataset, PriceDataset, Transform, OrbitTransform
+    PlanarDataset, TreeDataset, EgoDataset, ProteinDataset, PointCloudsDataset, MOSESDataset,
+    GuacamolDataset, TPUGraphDataset, ERDAGDataset, PriceDataset, Transform, OrbitTransform
 )
 
 from ema_pytorch import EMA
@@ -367,7 +371,7 @@ def setup_training(cfg, model, master_process, device, device_id, device_count, 
         if master_process and not autoencoder:
             ema_model = EMA(model, ema_model=ema_model, beta=0.9999, update_after_step=1000, update_every=1,
                             allow_different_devices=True)
-        step, best = (1, [None, None, None, None]) if autoencoder else (1, None)
+        step, best = (1, [None, None, None]) if autoencoder else (1, [None])
 
     if cfg.lr_scheduler == 'cosine':
         lr_scheduler = CosineWithWarmupLR(
@@ -391,29 +395,43 @@ def setup_training(cfg, model, master_process, device, device_id, device_count, 
     return model, ema_model, optimizer, lr_scheduler, step, checkpoint_file, best
 
 
-def instantiate_dataset(name, data_dir, cfg, master_process):
+def instantiate_dataset(name: str, data_dir: str, cfg: Any, master_process: bool):
     laplacian_transform = Transform(
         directed=cfg.dataset.directed, 
         normalized_laplacian=cfg.encoder.normalized_laplacian, 
         normalize_eigenvecs=cfg.encoder.normalize_eigenvecs,
+        num_vecs=cfg.encoder.num_vecs,
         large_graph=cfg.dataset.large_graph
     )
 
-    pre_transform = Compose([laplacian_transform, OrbitTransform()])
+    pre_transforms = [laplacian_transform]
+    if cfg.dataset.get('use_orbits', True):
+        pre_transforms.append(OrbitTransform())
+    pre_transform = Compose(pre_transforms)
     try:
         dataset = DATASETS[name]
     except KeyError:
         raise ValueError(f"Dataset {name} not found. Available datasets: {list(DATASETS.keys())}")
 
+    dataset_kwargs = {}
+    if name == 'price':
+        dataset_kwargs['graph_type'] = cfg.dataset.graph_type
+
+    if master_process and cfg.dataset.get('force_reload', False):
+        processed_dir = os.path.join(data_dir, 'processed')
+        if os.path.exists(processed_dir):
+            logger.info(f"Removing processed dataset cache at {processed_dir}")
+            shutil.rmtree(processed_dir)
+
     if master_process:
-        _ = dataset(data_dir, split='train', pre_transform=pre_transform)
-        _ = dataset(data_dir, split='val', pre_transform=pre_transform)
-        _ = dataset(data_dir, split='test', pre_transform=pre_transform)
+        _ = dataset(data_dir, split='train', pre_transform=pre_transform, **dataset_kwargs)
+        _ = dataset(data_dir, split='val', pre_transform=pre_transform, **dataset_kwargs)
+        _ = dataset(data_dir, split='test', pre_transform=pre_transform, **dataset_kwargs)
     
     if dist.is_initialized():
         dist.barrier()
 
-    train_dataset = dataset(data_dir, split='train', pre_transform=pre_transform)
-    val_dataset = dataset(data_dir, split='val', pre_transform=pre_transform)
-    test_dataset = dataset(data_dir, split='test', pre_transform=pre_transform)
+    train_dataset = dataset(data_dir, split='train', pre_transform=pre_transform, **dataset_kwargs)
+    val_dataset = dataset(data_dir, split='val', pre_transform=pre_transform, **dataset_kwargs)
+    test_dataset = dataset(data_dir, split='test', pre_transform=pre_transform, **dataset_kwargs)
     return train_dataset, val_dataset, test_dataset

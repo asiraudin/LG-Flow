@@ -196,7 +196,7 @@ class X0ParamInterpolant(BaseFlowMatchingInterpolant):
 
     def criterion(self, x_0, t, pred_x, mask):
         # Compute MSE loss w/ masking for padded tokens
-        norm_scale = torch.max(t.unsqueeze(-1), torch.tensor(0.1))
+        norm_scale = t.unsqueeze(-1).clamp_min(0.1)
         x_error = (pred_x - x_0) / norm_scale
         loss_denom = torch.sum(mask, dim=-1) * pred_x.size(-1)
         x_loss = torch.sum(x_error ** 2 * mask[..., None], dim=(-1, -2)) / loss_denom
@@ -307,7 +307,7 @@ class X1ParamInterpolant(BaseFlowMatchingInterpolant):
 
     def criterion(self, x_1, t, pred_x, mask):
         # Compute MSE loss w/ masking for padded tokens
-        norm_scale = 1 - torch.min(t.unsqueeze(-1), torch.tensor(0.9))
+        norm_scale = (1 - t.unsqueeze(-1)).clamp_min(0.1)
         x_error = (x_1 - pred_x) / norm_scale
         loss_denom = torch.sum(mask, dim=-1) * pred_x.size(-1)
         x_loss = torch.sum(x_error ** 2 * mask[..., None], dim=(-1, -2)) / loss_denom

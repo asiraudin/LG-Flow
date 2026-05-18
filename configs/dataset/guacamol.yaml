@@ -8,3 +8,5 @@ num_edge_types: 4
 directed: False
 molecular: True
 large_graph: False
+force_reload: False
+decoder_use_rms_norm: False

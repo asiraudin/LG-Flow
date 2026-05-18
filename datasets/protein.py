@@ -8,7 +8,14 @@ from torch.utils.data import random_split
 import torch_geometric.utils
 from torch_geometric.utils import remove_self_loops
 from torch_geometric.data import InMemoryDataset, download_url
-from .utils import load_pickle, save_pickle, node_counts
+from .utils import (
+    consume_preprocess_times,
+    init_preprocess_time_totals,
+    load_pickle,
+    log_preprocess_times,
+    node_counts,
+    save_pickle,
+)
 
 
 class ProteinDataset(InMemoryDataset):
@@ -47,6 +54,7 @@ class ProteinDataset(InMemoryDataset):
             os.rename(file_path, osp.join(self.raw_dir, name))
 
     def process(self):
+        preprocess_times = init_preprocess_time_totals()
         # read
         path = os.path.join(self.root, 'raw')
         data_graph_indicator = np.loadtxt(os.path.join(path, 'DD_graph_indicator.txt'), delimiter=',').astype(int)
@@ -118,6 +126,7 @@ class ProteinDataset(InMemoryDataset):
                     continue
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
+                    consume_preprocess_times(data, preprocess_times)
 
                 data_list.append(data)
 
@@ -127,6 +136,7 @@ class ProteinDataset(InMemoryDataset):
             torch.save(self.collate(data_list),
                        osp.join(self.processed_dir, f'{split}.pt'))
         save_pickle(counts, osp.join(self.processed_dir, 'node_counts.pickle'))
+        log_preprocess_times(self.__class__.__name__, preprocess_times)
 
 
 if __name__ == '__main__':
