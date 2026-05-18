@@ -42,3 +42,18 @@ where ```<config_name>``` is your config file, located in the configs folder und
 
 4. Sample the latent diffusion model : ```python eval_fm.py --config-name=<config_name> ae_checkpoint_file="path_to_ae_ckpt_location" checkpoint="path_to_fm_ckpt_location"```
 where ```<config_name>``` is your config file, located in the configs folder under the name ```<dataset>_fm_test.yaml```
+
+## ➕ Add a new dataset
+
+To add a new dataset to LG-Flow, follow the same pattern as the existing files in [`datasets/`](./datasets), [`configs/dataset/`](./configs/dataset), and [`utils.py`](./utils.py):
+
+1. Add a dataset wrapper in [`datasets/`](./datasets) and export it from [`datasets/__init__.py`](./datasets/__init__.py).
+2. Register it in the `DATASETS` mapping in [`utils.py`](./utils.py).
+3. Add `configs/dataset/<dataset_name>.yaml` with the dataset metadata used by training.
+4. Add the task configs in [`configs/`](./configs), usually `<dataset_name>_ae_train.yaml`, `<dataset_name>_fm_train.yaml`, and `<dataset_name>_fm_test.yaml`.
+5. If the dataset needs custom evaluation, update the sampling metrics in [`fm/fm_helpers.py`](./fm/fm_helpers.py) and the corresponding module under [`evaluation/`](./evaluation).
+
+As a rule of thumb, start from the closest existing dataset in the repo:
+- planar/tree/ego/protein are good templates for undirected graph datasets
+- `er_dag` and `price` are the templates for directed datasets
+- `moses` and `guacamol` are the templates for molecular datasets
