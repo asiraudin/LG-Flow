@@ -21,12 +21,13 @@ class PlanarDataset(InMemoryDataset):
             self,
             root,
             split,
+            num_nodes=64,
             transform=None,
             pre_transform=None,
             pre_filter=None,
     ):
         self.n_graphs = 8704
-        self.n_nodes = 64
+        self.n_nodes = num_nodes
         super().__init__(root, transform, pre_transform, pre_filter)
         
         path = osp.join(self.processed_dir, f'{split}.pt')

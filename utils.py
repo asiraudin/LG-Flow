@@ -416,6 +416,8 @@ def instantiate_dataset(name: str, data_dir: str, cfg: Any, master_process: bool
     dataset_kwargs = {}
     if name == 'price':
         dataset_kwargs['graph_type'] = cfg.dataset.graph_type
+    if name in {'planar', 'tree'}:
+        dataset_kwargs['num_nodes'] = cfg.dataset.num_nodes
 
     if master_process and cfg.dataset.get('force_reload', False):
         processed_dir = os.path.join(data_dir, 'processed')

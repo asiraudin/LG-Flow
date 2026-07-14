@@ -1,11 +1,15 @@
 defaults:
-  - encoder: mlpe_mlp_gine_price
-  - dataset: price
+  - encoder: lpe_mlp_gine_planar
+  - dataset: planar
   - _self_
 
 encoder:
   ds_dim: 16
   modulation: 0.
+  num_vecs: 32
+
+dataset:
+  num_nodes: 128
 
 root: null
 checkpoint: null
@@ -13,7 +17,7 @@ checkpoint: null
 # Training
 seed: 0
 lr_scheduler: 'cosine'
-lr: 3e-4
+lr: 2e-4
 min_lr: 1.5e-4
 lr_decay_iters: 5e4
 weight_decay: 1e-4

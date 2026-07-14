@@ -21,7 +21,6 @@ num_workers: 4
 log_after: 100
 val_after: 2000
 kl_weight: 1e-6
-equi_weight: 0.
 dropout: 0.
 
 # Misc
